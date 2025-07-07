@@ -1,0 +1,21 @@
+[project]
+name = "desktop-llm-avatar"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mss>=10.0.0",
+    "numpy>=2.3.1",
+    "openai>=1.93.0",
+    "opencv-python>=4.11.0.86",
+    "pyqt5>=5.15.11",
+    "python-dotenv>=1.1.1",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.12.2"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
