@@ -8,7 +8,7 @@ import base64
 from datetime import datetime
 from PyQt5.QtWidgets import QApplication, QLabel, QWidget
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QMovie, QFont
+from PyQt5.QtGui import QMovie, QFont, QBitmap, QPainter
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -36,7 +36,7 @@ class AnalysisThread(QThread):
                         "content": [
                             {
                                 "type": "text",
-                                "text": "As a cute avatar representing the Razer brand, analyze screenshots and respond with JSON containing 'comment' and 'action'. Actions: 'idle' for normal content, 'engage' for gaming/exciting content. Keep comments under 50 characters, be playful and gaming-focused.",
+                                "text": "You are a cute dragon avatar companion representing the Razer brand. Analyze screenshots and respond with engaging, enthusiastic comments. Be playful, gaming-focused, and use gaming slang. Your personality is energetic, supportive, and slightly mischievous. Respond with JSON containing 'comment' and 'action'. Actions: 'idle' for normal content, 'engage' for gaming/exciting content. Make comments 60-120 characters long to be more engaging.",
                             }
                         ],
                     },
@@ -45,7 +45,7 @@ class AnalysisThread(QThread):
                         "content": [
                             {
                                 "type": "text",
-                                "text": 'Analyze this screen and respond with JSON: {"comment": "your short friendly comment", "action": "idle or engage"}. Use \'engage\' for games, action scenes, or exciting content. Use \'idle\' for normal desktop/browsing.',
+                                "text": 'Analyze this screen and respond with JSON: {"comment": "your engaging gaming-focused comment", "action": "idle or engage"}. Use \'engage\' for games, action scenes, coding, creative work, or anything exciting. Use \'idle\' for normal desktop/browsing. Be encouraging and use gaming terminology. Examples: "Ready to respawn and dominate!" or "Time to level up those coding skills! 🔥" or "Ooh, browsing for new gear? I approve! ⚡"',
                             },
                             {
                                 "type": "image_url",
@@ -68,18 +68,18 @@ class AnalysisThread(QThread):
             self.analysis_complete.emit(result)
         except Exception as e:
             print(f"LLM analysis error: {e}")
-            fallback = {"comment": "Watching closely! 👀", "action": "idle"}
+            fallback = {"comment": "Ready to game whenever you are! Let's get this dragon fired up! 🐲⚡", "action": "idle"}
             self.analysis_complete.emit(fallback)
 
 
 class PetWindow(QWidget):
     def __init__(self, idle_gif="idle.gif", engage_gif="engage.gif", monitor_index=1):
         super().__init__()
-        
+
         # Monitor selection for multi-screen setups
         self.monitor_index = monitor_index
 
-        # Set window properties for a true desktop overlay
+        # Set window properties for smooth animation rendering
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
@@ -88,9 +88,10 @@ class PetWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)  # macOS specific
+        self.setAttribute(Qt.WA_NoSystemBackground)  # Prevent background artifacts
 
-        # Make it slightly transparent
-        self.setWindowOpacity(0.95)
+        # Full opacity for cleaner rendering
+        self.setWindowOpacity(1.0)
 
         # Force it to be always on top on macOS
         if sys.platform == "darwin":
@@ -104,13 +105,26 @@ class PetWindow(QWidget):
             except ImportError:
                 pass  # objc not available, use standard approach
 
-        # Animation setup
+        # Animation setup with optimization
         self.animations = {"idle": QMovie(idle_gif), "engage": QMovie(engage_gif)}
         self.current_action = "idle"
 
-        # Create label to show pet animation
+        # Optimize QMovie settings for smoother playback
+        for action, movie in self.animations.items():
+            movie.setCacheMode(QMovie.CacheAll)  # Cache all frames
+            movie.setSpeed(100)  # Normal speed
+            movie.finished.connect(movie.start)  # Loop the animation
+
+        # Create label to show pet animation with optimized settings
         self.pet_label = QLabel(self)
+        self.pet_label.setAlignment(Qt.AlignCenter)
+        self.pet_label.setScaledContents(False)  # Keep original size
+
         self.current_movie = self.animations["idle"]
+        
+        # Connect frame updates to update mask for perfect transparency
+        self.current_movie.frameChanged.connect(self.updateMask)
+        
         self.pet_label.setMovie(self.current_movie)
         self.current_movie.start()
 
@@ -118,7 +132,7 @@ class PetWindow(QWidget):
         self.resize(self.current_movie.frameRect().size())
 
         # Create chat bubble (textbox)
-        self.text_label = QLabel("Hi! I'm your pet!", self)
+        self.text_label = QLabel("Hey there, gamer! Your dragon companion is ready to roll! 🐲✨", self)
         self.text_label.setStyleSheet("""
             QLabel {
                 background-color: rgba(255, 255, 255, 240);
@@ -132,7 +146,7 @@ class PetWindow(QWidget):
         """)
         self.text_label.setFont(QFont("Segoe UI", 11))
         self.text_label.setWordWrap(True)
-        self.text_label.setMaximumWidth(200)
+        self.text_label.setMaximumWidth(250)
         self.text_label.adjustSize()
 
         # Position bubble to the right of the pet
@@ -149,6 +163,10 @@ class PetWindow(QWidget):
         self.text_label.show()
 
         self.old_pos = None
+
+        # Optimize rendering performance
+        self.optimize_rendering()
+
         self.show()
 
         # Auto-hide textbox after 5 seconds (optional)
@@ -157,10 +175,10 @@ class PetWindow(QWidget):
         # Screen capture setup
         self.sct = mss.mss()
         self.screenshot_count = 0
-        
+
         # Print available monitors
         self.print_available_monitors()
-        
+
         # Validate monitor selection
         if self.monitor_index >= len(self.sct.monitors):
             print(f"Monitor {self.monitor_index} not found, using primary monitor (1)")
@@ -183,6 +201,40 @@ class PetWindow(QWidget):
 
         # Track dragging state
         self.is_dragging = False
+        
+        # Initial mask update
+        self.updateMask()
+
+    def updateMask(self):
+        """Update window mask based on current frame's alpha channel"""
+        pixmap = self.current_movie.currentPixmap()
+        if not pixmap.isNull():
+            # Create mask from alpha channel for the pet
+            pet_mask = pixmap.mask()
+            if not pet_mask.isNull():
+                # Apply mask to pet label
+                self.pet_label.setMask(pet_mask)
+                
+                # Create combined mask for the whole window (pet + chat bubble area)
+                combined_mask = QBitmap(self.size())
+                combined_mask.clear()
+                
+                painter = QPainter(combined_mask)
+                painter.fillRect(combined_mask.rect(), Qt.color0)  # Clear to transparent
+                
+                # Draw pet mask at pet position
+                pet_rect = self.pet_label.geometry()
+                painter.drawPixmap(pet_rect, pet_mask)
+                
+                # Draw chat bubble area (if visible and exists)
+                if hasattr(self, 'text_label') and self.text_label.isVisible():
+                    bubble_rect = self.text_label.geometry()
+                    painter.fillRect(bubble_rect, Qt.color1)  # Make bubble area opaque
+                
+                painter.end()
+                
+                # Apply combined mask to window
+                self.setMask(combined_mask)
 
     def print_available_monitors(self):
         """Print information about available monitors"""
@@ -199,7 +251,21 @@ class PetWindow(QWidget):
                 print(f"  Size: {monitor['width']}x{monitor['height']}")
         print(f"Currently using: Monitor {self.monitor_index}")
         print("=" * 50)
-    
+
+    def optimize_rendering(self):
+        """Optimize widget rendering for smooth animations"""
+        # Enable automatic background filling
+        self.setAutoFillBackground(False)
+
+        # Optimize update behavior
+        self.setAttribute(Qt.WA_OpaquePaintEvent, False)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+
+        # Smooth scaling for animations
+        self.pet_label.setAttribute(Qt.WA_OpaquePaintEvent, False)
+
+        print("Rendering optimizations applied")
+
     def check_visibility(self):
         """Ensure window stays visible - only acts if actually hidden"""
         if not self.isVisible():
@@ -267,18 +333,28 @@ class PetWindow(QWidget):
         self.resize(total_width, total_height)
 
     def switch_animation(self, action):
-        """Switch between idle and engage animations"""
+        """Switch between idle and engage animations with smooth transition"""
         if action not in self.animations or action == self.current_action:
             return
 
-        # Stop current animation
-        self.current_movie.stop()
+        # Smooth transition to prevent artifacts
+        old_movie = self.current_movie
 
-        # Switch to new animation
+        # Prepare new animation
         self.current_action = action
         self.current_movie = self.animations[action]
+
+        # Quick transition to minimize visual artifacts
+        old_movie.stop()
         self.pet_label.setMovie(self.current_movie)
+        
+        # Connect frame updates to update mask for new animation
+        self.current_movie.frameChanged.connect(self.updateMask)
+        
         self.current_movie.start()
+
+        # Force immediate repaint to prevent flickering
+        self.pet_label.repaint()
 
         # Update window size for new animation
         self.resize(self.current_movie.frameRect().size())
@@ -290,7 +366,9 @@ class PetWindow(QWidget):
         """Capture screen for analysis"""
         try:
             monitor = self.sct.monitors[self.monitor_index]
-            print(f"Capturing from Monitor {self.monitor_index}: {monitor['width']}x{monitor['height']}")
+            print(
+                f"Capturing from Monitor {self.monitor_index}: {monitor['width']}x{monitor['height']}"
+            )
             screenshot = self.sct.grab(monitor)
             img = np.array(screenshot)
             img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
@@ -347,13 +425,13 @@ class PetWindow(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
+
     # Monitor selection examples:
     # monitor_index=1 -> Primary monitor (default)
-    # monitor_index=2 -> Secondary monitor 
+    # monitor_index=2 -> Secondary monitor
     # monitor_index=0 -> All monitors combined
-    
+
     # Change the monitor_index to capture different screens
-    pet = PetWindow("assets/idle.gif", "assets/engage.gif", monitor_index=1)
-    pet.update_text("Let's win this game!", duration=5000)
+    pet = PetWindow("assets/d-idle2.gif", "assets/d-engage2.gif", monitor_index=1)
+    pet.update_text("Time to dominate! Your dragon sidekick is locked and loaded! 🎮🔥", duration=5000)
     sys.exit(app.exec_())
